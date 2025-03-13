@@ -1,6 +1,6 @@
 # 🚀 Docker Migration Script
 
-This script automates the process of migrating Docker containers, volumes, and Portainer stacks from one host to another, supporting **both Red Hat-based (Rocky, RHEL, CentOS) and Debian-based (Ubuntu, Debian) distributions**.
+This script automates the process of migrating Docker containers, volumes, and Portainer stacks from one host to another host running dockage, supporting **both Red Hat-based (Rocky, RHEL, CentOS) and Debian-based (Ubuntu, Debian) distributions**.
 
 ## 📌 Features
 ✅ Automatically sets up **SSH key-based authentication** if needed  
