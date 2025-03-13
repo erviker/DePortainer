@@ -16,7 +16,7 @@ echo "🔐 Copying SSH key to $NEW_HOST..."
 ssh-copy-id "$NEW_HOST"
 
 echo "🔍 Checking dependencies on new host..."
-ssh "$NEW_HOST" << EOF
+ssh "$NEW_HOST" << 'EOF'
     if ! groups $USER | grep -q "docker"; then
         echo "❌ User $USER is not in the docker group. Adding user..."
         sudo usermod -aG docker $USER
@@ -24,9 +24,23 @@ ssh "$NEW_HOST" << EOF
         exit 1
     fi
 
+    # Detect OS type
+    if [ -f /etc/redhat-release ]; then
+        OS_TYPE="redhat"
+    elif [ -f /etc/debian_version ]; then
+        OS_TYPE="debian"
+    else
+        echo "❌ Unsupported OS. Exiting."
+        exit 1
+    fi
+
     if ! command -v docker &>/dev/null; then
         echo "❌ Docker not found. Installing..."
-        sudo dnf install -y docker docker-compose
+        if [ "$OS_TYPE" = "redhat" ]; then
+            sudo dnf install -y docker docker-compose-plugin
+        else
+            sudo apt update && sudo apt install -y docker.io docker-compose
+        fi
         sudo systemctl enable --now docker
     fi
 
@@ -43,7 +57,6 @@ ssh "$NEW_HOST" << EOF
 EOF
 
 echo "✅ New host is ready for migration."
-
 mkdir -p "$BACKUP_DIR"
 
 echo "⏳ Stopping all running containers..."
@@ -78,4 +91,43 @@ if [ -d "$PORTAINER_DATA_DIR" ]; then
         if [[ -n "$STACK_NAME" ]]; then
             DEST_PATH="$REMOTE_COMPOSE_DIR/$STACK_NAME"
             ssh "$NEW_HOST" "mkdir -p $DEST_PATH"
-            echo "$STACK_CONTE
+            echo "$STACK_CONTENT" | ssh "$NEW_HOST" "cat > $DEST_PATH/compose.yaml"
+            if [[ -n "$STACK_ENV" ]]; then
+                echo "$STACK_ENV" | ssh "$NEW_HOST" "cat > $DEST_PATH/.env"
+            fi
+        fi
+    done
+fi
+
+echo "🔄 Transferring volumes..."
+docker volume ls --format "{{.Name}}" | while read -r volume; do
+    if [[ " ${EXCLUDE_VOLUMES[@]} " =~ " ${volume} " ]]; then continue; fi
+    docker run --rm -v "$volume:/data" -v "$BACKUP_DIR:/backup" alpine tar -czvf "/backup/${volume}.tar.gz" -C /data .
+    scp "$BACKUP_DIR/${volume}.tar.gz" "$NEW_HOST:/tmp/"
+done
+
+echo "📂 Transferring bind mounts..."
+docker inspect $(docker ps -aq) | jq -r '.[].Mounts[] | select(.Type=="bind") | .Source' | sort -u > "$BACKUP_DIR/bind_mounts.txt"
+while read -r bind_mount; do
+    if [[ -n "$bind_mount" && -d "$bind_mount" ]]; then
+        rsync -avz "$bind_mount" "$NEW_HOST:$bind_mount"
+    fi
+done < "$BACKUP_DIR/bind_mounts.txt"
+
+echo "🚀 Restoring on the new host..."
+ssh "$NEW_HOST" << EOF
+    for volume_tar in /tmp/*.tar.gz; do
+        VOLUME_NAME=\$(basename "\$volume_tar" .tar.gz)
+        docker volume create "\$VOLUME_NAME"
+        docker run --rm -v "\$VOLUME_NAME:/data" -v /tmp:/backup alpine tar -xzvf "/backup/\$VOLUME_NAME.tar.gz" -C /data
+    done
+
+    for stack_dir in $REMOTE_COMPOSE_DIR/*; do
+        if [[ -d "\$stack_dir" && -f "\$stack_dir/compose.yaml" ]]; then
+            cd "\$stack_dir" || exit
+            docker-compose -f compose.yaml up -d
+        fi
+    done
+EOF
+
+echo "✅ Migration complete!"
