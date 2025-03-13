@@ -25,12 +25,12 @@ Ensure the following:
 ## 📥 Installation
 1. Clone this repository:
    ```sh
-   git clone https://github.com/your-repo/docker-migration.git
-   cd docker-migration
+   git clone https://github.com/erviker/DePortainer.git
+   cd DePortainer
    ```
 2. Make the script executable:
    ```sh
-   chmod +x migrate_docker.sh
+   chmod +x run.sh
    ```
 
 ---
@@ -38,7 +38,7 @@ Ensure the following:
 ## 🚀 Usage
 Run the script on the **old host**:
 ```sh
-./migrate_docker.sh
+./run.sh
 ```
 
 ### **Customization**
